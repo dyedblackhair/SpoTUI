@@ -97,12 +97,9 @@ const CLIENT_ID = "40274723ddd145d08253f59ccb201ef7";
 const REDIRECT_URI = "https://dyedblackhair.github.io/SpoTUI/";
 const SCOPES = ["user-library-read","user-top-read","user-read-recently-played"];
 let loginBtn;
-
-// PKCE Helpers
 function randomString(len=64){return crypto.getRandomValues(new Uint8Array(len)).reduce((s,b)=>s+('0'+b.toString(16)).slice(-2),'');}
 function base64url(a){return btoa(String.fromCharCode(...new Uint8Array(a))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
 async function sha256(t){return crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));}
-
 async function login(){
   const verifier=randomString();
   const challenge=base64url(await sha256(verifier));
@@ -117,7 +114,6 @@ async function login(){
   });
   location.href='https://accounts.spotify.com/authorize?'+p;
 }
-
 async function exchange(code){
   const body=new URLSearchParams({
     grant_type:'authorization_code',
@@ -129,10 +125,7 @@ async function exchange(code){
   const r=await fetch('https://accounts.spotify.com/api/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
   return r.json();
 }
-
 async function api(url){return fetch(url,{headers:{Authorization:'Bearer '+localStorage.getItem('token')}}).then(r=>r.json());}
-
-// ====== Dashboard ======
 async function init(){
   loginBtn.style.display='none';
   await loadLiked();
@@ -140,7 +133,6 @@ async function init(){
   await calcMinutes();
   await loadGenres();
 }
-
 async function loadLiked(){
   const d=await api('https://api.spotify.com/v1/me/tracks?limit=15');
   liked.innerHTML='';
@@ -149,34 +141,27 @@ async function loadLiked(){
     liked.innerHTML += `<li class='card'><img src="${img}"><div><div class='title'>${x.track.name}</div><div class='subtitle'>${x.track.artists.map(a=>a.name).join(', ')}</div></div></li>`;
   });
 }
-
 async function loadTop(){
   const tracksRange = document.getElementById('topTracksRange').value;
   const artistsRange = document.getElementById('topArtistsRange').value;
-
   const t=await api(`https://api.spotify.com/v1/me/top/tracks?limit=5&time_range=${tracksRange}`);
   const a=await api(`https://api.spotify.com/v1/me/top/artists?limit=5&time_range=${artistsRange}`);
-
   topTracks.innerHTML='';
   t.items.forEach((x,i)=>{
     const img = x.album.images[1]?.url || '';
     topTracks.innerHTML+=`<li class='card'><img src="${img}"><div class='title'>${i+1}. ${x.name}</div></li>`;
   });
-
   topArtists.innerHTML='';
   a.items.forEach((x,i)=>{
     const img = x.images[1]?.url || '';
     topArtists.innerHTML+=`<li class='card'><img src="${img}"><div class='title'>${i+1}. ${x.name}</div></li>`;
   });
 }
-
 async function calcMinutes(){
   const shortTerm = await api('https://api.spotify.com/v1/me/player/recently-played?limit=50');
   const total = shortTerm.items.reduce((s,i)=>s+i.track.duration_ms,0);
   minutes.textContent = Math.round(total/60000) + ' min (last 50 tracks)';
 }
-
-// ====== Top Genres ======
 async function loadGenres(){
   asciiAnimation();
   const a=await api('https://api.spotify.com/v1/me/top/artists?limit=20&time_range=medium_term');
@@ -185,7 +170,6 @@ async function loadGenres(){
   const sortedGenres = Object.entries(genreCount).sort((a,b)=>b[1]-a[1]);
   topGenres.innerHTML = sortedGenres.map(([g,c])=>`<li class='genre-card'><span class='name'>${g}</span><div class='bar' style='width:${Math.min(100,c*20)}%'></div></li>`).join('');
 }
-
 function asciiAnimation(){
   const rows = 4, cols=20;
   setInterval(()=>{
@@ -199,12 +183,9 @@ function asciiAnimation(){
     ascii.textContent = str;
   },400);
 }
-
-// ====== DOMContentLoaded ======
 document.addEventListener('DOMContentLoaded',()=>{
   loginBtn = document.getElementById('login');
   loginBtn.onclick = login;
-
   document.querySelectorAll('button[data-tab]').forEach(b=>{
     b.onclick=()=>{
       document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
@@ -213,18 +194,14 @@ document.addEventListener('DOMContentLoaded',()=>{
       b.classList.add('active');
     }
   });
-
   document.getElementById('topTracksRange').onchange = loadTop;
   document.getElementById('topArtistsRange').onchange = loadTop;
-
   handleRedirect();
 });
-
 async function handleRedirect(){
   const params = new URLSearchParams(window.location.search);
   const code = params.get('code');
   const token = localStorage.getItem('token');
-
   if(code){
     try{
       const tokenResp = await exchange(code);
@@ -239,5 +216,6 @@ async function handleRedirect(){
 </script>
 </body>
 </html>
+
 
 
