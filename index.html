@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<title>SpoTUI</title>
+<style>
+:root {
+  --bg:#131313;
+  --fg:#eae6f7;
+  --accent:#b48cff;
+  --dim:#43404d;
+}
+body {
+  margin:0;
+  font-family: Open Sans, monospace;
+  background:var(--bg);
+  color:var(--fg);
+}
+header {
+  padding:14px;
+  border-bottom:1px solid var(--dim);
+  display:flex;
+  justify-content:space-between;
+}
+button {
+  background:none;
+  border:1px solid var(--accent);
+  color:var(--accent);
+  font-family:inherit;
+  padding:6px 10px;
+  cursor:pointer;
+  border-radius:6px;
+  transition:0.2s;
+}
+button:hover { background:var(--accent); color:var(--bg); }
+button.active { background:var(--accent); color:var(--bg); }
+main { padding:16px; }
+.view { display:none; gap:16px; }
+.view.active { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); }
+.panel { border:1px solid var(--dim); border-radius:8px; padding:12px; background:#1a1724; }
+h2 { margin:0 0 12px; color:var(--accent); font-size:16px; }
+ul { list-style:none; padding:0; margin:0; display:grid; gap:8px; }
+.card { display:flex; align-items:center; background:#2a2339; border-radius:8px; padding:6px; gap:8px; transition: transform 0.2s; }
+.card:hover { transform: scale(1.02); }
+.card img { width:50px; height:50px; border-radius:6px; }
+.title { font-weight:bold; color:var(--accent); }
+.subtitle { font-size:12px; color:var(--dim); }
+.genre-card { margin-bottom:8px; }
+.genre-card .name { color:var(--fg); font-weight:bold; margin-bottom:2px; display:block; }
+.genre-card .bar { height:10px; background:var(--accent); border-radius:5px; }
+select { background:var(--bg); color:var(--accent); border:1px solid var(--accent); padding:4px 6px; margin-bottom:8px; cursor:pointer; border-radius:6px; }
+pre { color:var(--accent); font-size:12px; line-height:1.2; text-align:center; height:80px; }
+</style>
+</head>
+<body>
+<header>
+  <div>SpoTUI</div>
+  <div>
+    <button data-tab="dash" class="active">dashboard</button>
+    <button data-tab="genres">top genres</button>
+    <button id="login">login</button>
+  </div>
+</header>
+<main>
+<section id="dash" class="view active">
+  <div class="panel"><h2>❤ liked</h2><ul id="liked"></ul></div>
+  <div class="panel">
+    <h2>🎧 top tracks</h2>
+    <select id="topTracksRange">
+      <option value="short_term">Last 4 weeks</option>
+      <option value="medium_term">Last 6 months</option>
+      <option value="long_term">All time</option>
+    </select>
+    <ul id="topTracks"></ul>
+  </div>
+  <div class="panel">
+    <h2>🎤 top artists</h2>
+    <select id="topArtistsRange">
+      <option value="short_term">Last 4 weeks</option>
+      <option value="medium_term">Last 6 months</option>
+      <option value="long_term">All time</option>
+    </select>
+    <ul id="topArtists"></ul>
+  </div>
+  <div class="panel"><h2>⏱ minutes ≈</h2><div id="minutes"></div></div>
+</section>
+<section id="genres" class="view">
+  <div class="panel" style="grid-column:1/-1">
+    <h2>🎵 Top Genres</h2>
+    <pre id="ascii"></pre>
+    <ul id="topGenres"></ul>
+  </div>
+</section>
+</main>
+<script>
+import { CLIENT_ID } from './config.js';
+const REDIRECT_URI = "http://127.0.0.1:5500";
+const SCOPES = ["user-library-read","user-top-read","user-read-recently-played"];
+let loginBtn;
+
+// PKCE Helpers
+function randomString(len=64){return crypto.getRandomValues(new Uint8Array(len)).reduce((s,b)=>s+('0'+b.toString(16)).slice(-2),'');}
+function base64url(a){return btoa(String.fromCharCode(...new Uint8Array(a))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
+async function sha256(t){return crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));}
+
+async function login(){
+  const verifier=randomString();
+  const challenge=base64url(await sha256(verifier));
+  localStorage.setItem('verifier',verifier);
+  const p=new URLSearchParams({
+    response_type:'code',
+    client_id:CLIENT_ID,
+    redirect_uri:REDIRECT_URI,
+    scope:SCOPES.join(' '),
+    code_challenge_method:'S256',
+    code_challenge:challenge
+  });
+  location.href='https://accounts.spotify.com/authorize?'+p;
+}
+
+async function exchange(code){
+  const body=new URLSearchParams({
+    grant_type:'authorization_code',
+    code,
+    redirect_uri:REDIRECT_URI,
+    client_id:CLIENT_ID,
+    code_verifier:localStorage.getItem('verifier')
+  });
+  const r=await fetch('https://accounts.spotify.com/api/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
+  return r.json();
+}
+
+async function api(url){return fetch(url,{headers:{Authorization:'Bearer '+localStorage.getItem('token')}}).then(r=>r.json());}
+
+// ====== Dashboard ======
+async function init(){
+  loginBtn.style.display='none';
+  await loadLiked();
+  await loadTop();
+  await calcMinutes();
+  await loadGenres();
+}
+
+async function loadLiked(){
+  const d=await api('https://api.spotify.com/v1/me/tracks?limit=15');
+  liked.innerHTML='';
+  d.items.forEach(x=>{
+    const img = x.track.album.images[1]?.url || '';
+    liked.innerHTML += `<li class='card'><img src="${img}"><div><div class='title'>${x.track.name}</div><div class='subtitle'>${x.track.artists.map(a=>a.name).join(', ')}</div></div></li>`;
+  });
+}
+
+async function loadTop(){
+  const tracksRange = document.getElementById('topTracksRange').value;
+  const artistsRange = document.getElementById('topArtistsRange').value;
+
+  const t=await api(`https://api.spotify.com/v1/me/top/tracks?limit=5&time_range=${tracksRange}`);
+  const a=await api(`https://api.spotify.com/v1/me/top/artists?limit=5&time_range=${artistsRange}`);
+
+  topTracks.innerHTML='';
+  t.items.forEach((x,i)=>{
+    const img = x.album.images[1]?.url || '';
+    topTracks.innerHTML+=`<li class='card'><img src="${img}"><div class='title'>${i+1}. ${x.name}</div></li>`;
+  });
+
+  topArtists.innerHTML='';
+  a.items.forEach((x,i)=>{
+    const img = x.images[1]?.url || '';
+    topArtists.innerHTML+=`<li class='card'><img src="${img}"><div class='title'>${i+1}. ${x.name}</div></li>`;
+  });
+}
+
+async function calcMinutes(){
+  const shortTerm = await api('https://api.spotify.com/v1/me/player/recently-played?limit=50');
+  const total = shortTerm.items.reduce((s,i)=>s+i.track.duration_ms,0);
+  minutes.textContent = Math.round(total/60000) + ' min (last 50 tracks)';
+}
+
+// ====== Top Genres ======
+async function loadGenres(){
+  asciiAnimation();
+  const a=await api('https://api.spotify.com/v1/me/top/artists?limit=20&time_range=medium_term');
+  const genreCount={};
+  a.items.forEach(artist=>{artist.genres.forEach(g=>{genreCount[g]=(genreCount[g]||0)+1;});});
+  const sortedGenres = Object.entries(genreCount).sort((a,b)=>b[1]-a[1]);
+  topGenres.innerHTML = sortedGenres.map(([g,c])=>`<li class='genre-card'><span class='name'>${g}</span><div class='bar' style='width:${Math.min(100,c*20)}%'></div></li>`).join('');
+}
+
+function asciiAnimation(){
+  const rows = 4, cols=20;
+  setInterval(()=>{
+    let str='';
+    for(let r=0;r<rows;r++){
+      for(let c=0;c<cols;c++){
+        str += Math.random() > 0.7 ? '█' : ' ';
+      }
+      str+='\n';
+    }
+    ascii.textContent = str;
+  },400);
+}
+
+// ====== DOMContentLoaded ======
+document.addEventListener('DOMContentLoaded',()=>{
+  loginBtn = document.getElementById('login');
+  loginBtn.onclick = login;
+
+  document.querySelectorAll('button[data-tab]').forEach(b=>{
+    b.onclick=()=>{
+      document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+      document.getElementById(b.dataset.tab).classList.add('active');
+      document.querySelectorAll('button[data-tab]').forEach(x=>x.classList.remove('active'));
+      b.classList.add('active');
+    }
+  });
+
+  document.getElementById('topTracksRange').onchange = loadTop;
+  document.getElementById('topArtistsRange').onchange = loadTop;
+
+  handleRedirect();
+});
+
+async function handleRedirect(){
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  const token = localStorage.getItem('token');
+
+  if(code){
+    try{
+      const tokenResp = await exchange(code);
+      if(tokenResp.access_token){
+        localStorage.setItem('token', tokenResp.access_token);
+        history.replaceState({}, '', REDIRECT_URI);
+        await init();
+      } else { console.error('Ошибка обмена кода:', tokenResp); }
+    } catch(e){ console.error('Ошибка обмена токена:', e); }
+  } else if(token){ await init(); }
+}
+</script>
+</body>
+</html>
